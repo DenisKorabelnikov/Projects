@@ -43,7 +43,7 @@ class Game:
     def run(self):
         """Основной цикл программы."""
         try:
-            with sqlite3.connect("database\\records.db") as self.conn:
+            with sqlite3.connect("..\\database\\records.db") as self.conn:
                 self.init_database()
                 while True:
                     try:
