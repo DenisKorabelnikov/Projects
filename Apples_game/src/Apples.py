@@ -14,6 +14,9 @@ class ColorText:
 
 class Game:
     def __init__(self):
+        """Первоначальная инициализация игры.
+        Установка параметров.
+        """
         self.WIDTH = 600
         self.HEIGHT = 400
 
@@ -37,34 +40,44 @@ class Game:
         self.clock = pygame.time.Clock()
         pygame.display.set_caption("Apples game")
 
-    # Основной цикл программы
     def run(self):
+        """Основной цикл программы."""
         try:
             with sqlite3.connect("database\\records.db") as self.conn:
                 self.init_database()
                 while True:
-                    self.management()
-                    if self.first_game:
-                        self.print_text('Press "Space" for start game', ColorText.GREEN)
-                        continue
+                    try:
+                        self.management()
+                        if self.first_game:
+                            self.print_text(
+                                'Press "Space" for start game', ColorText.GREEN
+                            )
+                            continue
 
-                    self.draw_figure()
-                    if any(
-                        y + self.base_rad_apple >= self.HEIGHT for x, y in self.apples
-                    ):
-                        self.print_text("GAME OVER", ColorText.RED)
-                    elif self.pause:
-                        self.print_text(f"SCORE: {self.score}", ColorText.GREEN)
-                    else:
-                        self.game_logic()
-                        self.clock.tick(self.fps)
-                    pygame.display.update()
+                        self.draw_figure()
+                        if any(
+                            y + self.base_rad_apple >= self.HEIGHT
+                            for x, y in self.apples
+                        ):
+                            self.print_text("GAME OVER", ColorText.RED)
+                        elif self.pause:
+                            self.print_text(f"SCORE: {self.score}", ColorText.GREEN)
+                        else:
+                            self.game_logic()
+                            self.clock.tick(self.fps)
+                        pygame.display.update()
+                    except Exception as e:
+                        print(f"Exception: {e}")
+                        self.db_add_record()
+                        break
 
         except sqlite3.OperationalError as e:
             print(f"OperationalError: {e}")
 
-    # Управление игрой и изменение размеров окна
     def management(self):
+        """Обработка событий:
+        Пауза, перезапуск, выход из игры.
+        """
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.db_add_record()
@@ -93,16 +106,21 @@ class Game:
                     self.db_add_record()
                     self.score = 0
 
-    # Отображение счёта в левом верхнем углу во время игры
     def print_score(self):
+        """Отображение счёта в левом верхнем углу во время игры."""
         score_size = int(30 * (self.WIDTH / 600 + self.HEIGHT / 400) / 2)
         score_font = pygame.font.Font(None, score_size)
         score_text = score_font.render(str(self.score), True, ColorText.BLUE)
         a = int(10 * (self.WIDTH / 600 + self.HEIGHT / 400) / 2)
         self.sc.blit(score_text, (a, a))
 
-    # Отображение текста
     def print_text(self, s, color):
+        """Отображение текста.
+
+        Параметры:
+            s (str): Строка текста для отображения.
+            color (tuple): Цвет текста.
+        """
         base_font_size = 60
         font_size = int(base_font_size * (self.WIDTH / 600 + self.HEIGHT / 400) / 2)
 
@@ -143,8 +161,8 @@ class Game:
 
         pygame.display.flip()
 
-    # Изменение всех размеров и координат при изменении размеров окна
     def update_object_sizes(self):
+        """Изменение всех размеров и координат при изменении размеров окна."""
         # Коэффициент изменения
         scale_factor = (self.WIDTH / 600 + self.HEIGHT / 400) / 2
 
@@ -166,8 +184,8 @@ class Game:
                     self.apples[i][1] * (self.HEIGHT / self.old_height)
                 )
 
-    # Управление платформой
     def plat_action(self):
+        """Управление платформой стрелками"""
         keys = pygame.key.get_pressed()
         if (
             keys[pygame.K_LEFT]
@@ -180,8 +198,8 @@ class Game:
         ):
             self.x_plat += self.speed_plat
 
-    # Отрисовка всех фигур, в том числе счёта в левом верхнему углу (кроме текста)
     def draw_figure(self):
+        """Отрисовка всех фигур и счёта в левом верхнем углу"""
         self.sc.fill(ColorText.WHITE)
         for i in range(len(self.apples)):
             pygame.draw.circle(
@@ -201,8 +219,10 @@ class Game:
 
         self.print_score()
 
-    # Логика работы игры (Появление и падение яблок. Определение, попало ли яблоко на платформу)
     def game_logic(self):
+        """Логика работы игры.
+        Появление и падение яблок. Определение, попало ли яблоко на платформу.
+        """
         self.plat_action()
 
         self.timer_for_apple += 1
@@ -230,8 +250,8 @@ class Game:
                     self.score += 1
                     self.apples.remove([x, y])
 
-    # Инициализация базы данных
     def init_database(self):
+        """Инициализация базы данных"""
         self.cur = self.conn.cursor()
         self.cur.execute(
             """
@@ -242,19 +262,25 @@ class Game:
         """
         )
 
-    # Запись новых рекордов в БД и удаление старых
     def db_add_record(self):
+        """Запись новых рекордов в БД и удаление старых"""
         if self.score > 0:
-            self.cur.execute("INSERT INTO Records (score) VALUES (?)", (self.score,))
-            self.conn.commit()
+            try:
+                self.cur.execute(
+                    "INSERT INTO Records (score) VALUES (?)", (self.score,)
+                )
 
-            # Лимит хранимых записей в БД
-            max_records = 5
-            self.cur.execute(
-                "DELETE FROM Records WHERE id NOT IN (SELECT id FROM Records ORDER BY score DESC LIMIT ?)",
-                (max_records,),
-            )
-            self.conn.commit()
+                # Лимит хранимых записей в БД
+                max_records = 5
+                self.cur.execute(
+                    "DELETE FROM Records WHERE id NOT IN (SELECT id FROM Records ORDER BY score DESC LIMIT ?)",
+                    (max_records,),
+                )
+
+                self.conn.commit()
+            except sqlite3.Error as e:
+                print(f"sqlite3.Error: {e}")
+                self.conn.rollback()  # Откат изменений в случае ошибки
 
 
 if __name__ == "__main__":
