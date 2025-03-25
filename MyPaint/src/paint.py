@@ -1,11 +1,14 @@
 """
-Дорисовать новое меню и сделать кнопки рабочими
-Добавить выделение тех кнопок, которые активны на данный момент
+Отображать, что сохранение файла выполнено
+Пофиксить прерывание карандаша
 
 В будущем попробовать переписать логику изменения масштаба, чтобы при его изменении в середине рабочей области - сохранять текущее положение рисунка
 """
 
 import pygame
+import math
+import numpy as np
+import os
 
 
 class Color:
@@ -23,7 +26,7 @@ class Color:
             [(109, 148, 187), (64, 70, 208), (255, 173, 201), (255, 201, 15), (246, 132, 35), (179, 125, 87)],
             [(4, 161, 228), (152, 218, 232), (253, 245, 0), (239, 227, 177), (184, 227, 33), (39, 174, 82)]
         ]
-     
+
 
 class Paint:
     def __init__(self):
@@ -32,8 +35,9 @@ class Paint:
         self.HEIGHT = 800
         self.WIDTH_SHEET = self.WIDTH - 2 * 20
         self.HEIGHT_SHEET = self.HEIGHT - 100 - 2 * 20
-        self.fps = 60
         self.size = 12
+        self.saving_size = (3840, 2640)
+        self.fps = 60
         self.scroll_bar_width = 10
         
         self.right_scroll_bar_color = Color.SCROLL_BAR_NOT_ACTIVE
@@ -56,13 +60,30 @@ class Paint:
         self.sheet_offset_x = 0
         self.sheet_offset_y = 0
         
+        # Координаты кнопок меню в формате:
+        # (x_start, x_end, y_start, y_end)
+        self.coors = {"pencil": (14, 43, 14, 44),
+                      "eraser": (14, 43, 55, 85),
+                      "pipette": (306, 335, 14, 44),
+                      "palette": (150, 293, 14, 85),
+                      "figure_selection": (66, 137, 14, 85),
+                      "save_jpg": (358, 387, 14, 44),
+                      "save_png": (358, 387, 55, 85)
+            }
+        
+        self.figure_selection = [["line", "rectangle", "ellipse"],
+                               ["arc", "", ""],
+                               ["", "", ""]]
+        
+        self.tool = "pencil"
+        self.eraser = False
         self.drawing = False
         self.down_scroll_bar_active = False
         self.down_scroll_bar_draw = False
         self.right_scroll_bar_active = False
         self.right_scroll_bar_draw = False
         self.last_surface = None
-        self.brush_color = Color.BLACK
+        self.brush_color = self.last_color = Color.BLACK
         self.surfaces = []  # Список для хранения поверхностей
 
     def run(self):
@@ -137,22 +158,60 @@ class Paint:
             self.down_scroll_bar_shift = x - self.down_scroll_bar_x
         
         # Нажатие на рабочую область рисования
-        elif 20 <= x <= self.WIDTH - 20 and 120 <= y <= self.HEIGHT - 20:
-            self.drawing = True
-            self.last_surface = pygame.Surface((self.WIDTH_SHEET, self.HEIGHT_SHEET), pygame.SRCALPHA)
-            self.last_surface.fill((*Color.WHITE, 0))
-            pygame.draw.rect(self.last_surface, self.brush_color, (*self.shift(pos), self.size, self.size))
-        
+        elif 0 <= x <= self.WIDTH - 20 and 100 <= y <= self.HEIGHT - 20:           
+            if self.tool == "pipette":
+                for surface in self.surfaces[::-1]:
+                    color = surface.get_at(self.shift(pos))
+                    if color[3] > 0:
+                        self.brush_color = color
+                        break
+            else:
+                self.drawing = True
+                self.last_surface = pygame.Surface((self.WIDTH_SHEET, self.HEIGHT_SHEET), pygame.SRCALPHA)
+                self.last_surface.fill((0, 0, 0, 0))
+                if self.tool == "pencil" or self.tool == "eraser":
+                    pygame.draw.rect(self.last_surface, self.brush_color, (*self.shift(pos), self.size, self.size))
+                elif any(self.tool in row for row in self.figure_selection):
+                    self.start_pos = pos
+                
         # Нажатие на палитру цветов
-        elif 150 <= x <= 293 and 14 <= y <= 85:
+        elif self.tool != "eraser" and self.tool != "pipette" and self.coors["palette"][0] <= x <= self.coors["palette"][1] and self.coors["palette"][2] <= y <= self.coors["palette"][3]:
             self.change_color(pos)
+        
+        # Выбор инструмента
+        # Карандаш
+        elif self.coors["pencil"][0] <= x <= self.coors["pencil"][1] and self.coors["pencil"][2] <= y <= self.coors["pencil"][3]:
+            self.tools("pencil")
+        # Ластик
+        elif self.coors["eraser"][0] <= x <= self.coors["eraser"][1] and self.coors["eraser"][2] <= y <= self.coors["eraser"][3]:
+            self.tools("eraser")
+        # Пипетка
+        elif self.coors["pipette"][0] <= x <= self.coors["pipette"][1] and self.coors["pipette"][2] <= y <= self.coors["pipette"][3]:
+            self.tools("pipette")
+        # Геометрические фигуры
+        elif self.coors["figure_selection"][0] <= x <= self.coors["figure_selection"][1] and self.coors["figure_selection"][2] <= y <= self.coors["figure_selection"][3]:
+            self.change_tool(pos)
+            self.tools("figure_selection")
+        # Сохранение в формате .jpg
+        elif self.coors["save_jpg"][0] <= x <= self.coors["save_jpg"][1] and self.coors["save_jpg"][2] <= y <= self.coors["save_jpg"][3]:
+            self.saving_image("jpg")
+        # Сохранение в формате .png
+        elif self.coors["save_png"][0] <= x <= self.coors["save_png"][1] and self.coors["save_png"][2] <= y <= self.coors["save_png"][3]:
+            self.saving_image("png")
 
     def handle_mouse_motion(self, pos):
-        x, y = pos
-        if 0 < x - 20 <= self.WIDTH_SHEET and 0 < y - 120 <= self.HEIGHT_SHEET:
-            if self.drawing:
+        if self.drawing:
+            if self.tool == "pencil" or self.tool == "eraser":
                 pygame.draw.rect(self.last_surface, self.brush_color, (*self.shift(pos), self.size, self.size))
-        
+            elif self.tool == "line":
+                self.draw_line(pos)
+            elif self.tool == "rectangle":
+                self.draw_rectangle(*self.start_pos, *pos)
+            elif self.tool == "arc":
+                self.draw_arc(*self.start_pos, *pos)
+            elif self.tool == "ellipse":
+                self.draw_ellipse(*self.start_pos, *pos)
+                    
         # Движение правого скроллбара
         if self.right_scroll_bar_draw and self.right_scroll_bar_active:
             self.right_scroll_bar_y = pos[1] - self.right_scroll_bar_shift
@@ -226,8 +285,10 @@ class Paint:
         self.head = pygame.image.load("..\\images\\head.png")
         self.sc.blit(self.head, (0, 0))
         
-        pygame.draw.rect(self.sc, self.brush_color, (309, 59, 24, 24))
+        self.active_button_surface = pygame.Surface((self.WIDTH, 100), pygame.SRCALPHA)
+        self.active_button(self.tool)
         
+        pygame.draw.rect(self.sc, self.brush_color, (309, 59, 24, 24))
         pygame.draw.rect(self.sc, Color.SCROLL_BAR_NOT_ACTIVE, (0, 100, self.WIDTH, 1))
         
         self.scroll_bar()
@@ -283,7 +344,16 @@ class Paint:
         j = (y - 13) // 24
         if 0 <= i <= 5 and 0 <= j <= 2:
             self.brush_color = Color.colors[j][i]
-        
+
+    def change_tool(self, pos):
+        a = (pos[0] - self.coors["figure_selection"][0] - 1) // 24
+        b = (pos[1] - self.coors["figure_selection"][2] - 1) // 24
+
+        if self.figure_selection[b][a]:
+            self.change_tool_x = a
+            self.change_tool_y = b
+            self.tool = self.figure_selection[self.change_tool_y][self.change_tool_x]
+
     def scale_changing(self, scale, button):
         if button == 4 or button == 5:
             self.WIDTH_SHEET //= scale
@@ -302,7 +372,157 @@ class Paint:
             for surface in self.surfaces:
                 new_surfaces.append(pygame.transform.scale(surface, (self.WIDTH_SHEET, self.HEIGHT_SHEET)))
             self.surfaces = new_surfaces.copy()
+
+    def tools(self, tool):
+        if tool in ("pencil", "eraser"):
+            self.tool = tool
+        if self.eraser and (tool == "pencil" or tool == "figure_selection"):
+            self.eraser = False
+            self.brush_color = self.last_color
         
+        elif tool == "eraser":
+            self.eraser = True
+            self.last_color = self.brush_color
+            self.brush_color = Color.WHITE
+
+    def active_button(self, tool):
+        if any(tool in row for row in self.figure_selection):
+            pygame.draw.rect(self.active_button_surface, (*Color.colors[1][0], 50), (self.coors["figure_selection"][0] + self.change_tool_x * 24, self.coors["figure_selection"][2] + self.change_tool_y * 24, 24, 24))            
+        else:
+            x1, x2, y1, y2 = self.coors[f"{tool}"]
+            pygame.draw.rect(self.active_button_surface, (*Color.colors[1][0], 50), (x1, y1, x2 - x1 + 1, y2 - y1 + 1))            
+        self.sc.blit(self.active_button_surface, (0, 0))
+
+    def bresenham(self, x1, y1, x2, y2):
+        """Алгоритм Брезенхэма
+        Генерирует координаты точек на линии от (x1, y1) до (x2, y2) по алгоритму Брезенхэма.
+        Используется в программе для рисования: линии, квадрата, прямоугольника."""
+        points = []
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        sx = 1 if x1 < x2 else -1
+        sy = 1 if y1 < y2 else -1
+        err = dx - dy
+
+        while True:
+            points.append((x1, y1))
+            if x1 == x2 and y1 == y2:
+                break
+            err2 = err * 2
+            if err2 > -dy:
+                err -= dy
+                x1 += sx
+            if err2 < dx:
+                err += dx
+                y1 += sy
+        
+        return points
+
+    def draw_line(self, pos):
+        self.last_surface.fill((0, 0, 0, 0))
+        points = self.bresenham(*self.start_pos, *pos)
+
+        for point in points:
+            pygame.draw.rect(self.last_surface, self.brush_color, (*self.shift(point), self.size, self.size))
+
+    def draw_rectangle(self, x1, y1, x2, y2):
+        self.last_surface.fill((0, 0, 0, 0))
+        width = x2 - x1 - abs((x2 - x1) % self.size)
+        height = y2 - y1 - abs((y2 - y1) % self.size)
+        
+        keys = pygame.key.get_pressed()
+        is_shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        
+        if is_shift_pressed:
+            width = min(abs(width), abs(height))
+            width *= 1 if x2 - x1 > 0 else -1
+            
+            sign_y = 1 if y2 - y1 > 0 else - 1
+            height = abs(width) * sign_y
+            
+        points = [
+                (x1, y1),
+                (x1 + width, y1),
+                (x1 + width, y1 + height),
+                (x1, y1 + height),
+                (x1, y1)
+            ]
+        
+        for i in range(len(points) - 1):
+            start = points[i]
+            end = points[i + 1]
+            line_points = self.bresenham(*start, *end)
+            for point in line_points:
+                pygame.draw.rect(self.last_surface, self.brush_color, (*self.shift(point), self.size, self.size))
+
+    def draw_arc(self, x1, y1, x2, y2):
+        self.last_surface.fill((0, 0, 0, 0))
+        # Радиус и центр дуги
+        radius = int(math.hypot(x2 - x1, y2 - y1) / 2)
+        xc = (x1 + x2) // 2
+        yc = (y1 + y2) // 2
+
+        keys = pygame.key.get_pressed()
+        is_shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        
+        # Начальный и конечный углы в радианах
+        theta_start = math.atan2(y1 - yc, x1 - xc)
+        theta_end = math.atan2(y2 - yc, x2 - xc)
+        
+        if is_shift_pressed:
+            theta_start += math.pi
+            theta_end += math.pi
+
+        if theta_end < theta_start:
+            theta_end += 2 * math.pi
+        # Алгоритм для рисования дуги
+        for theta in np.arange(theta_start, theta_end, 0.01):
+            x = int(xc + radius * math.cos(theta))
+            y = int(yc + radius * math.sin(theta))
+            pygame.draw.rect(self.last_surface, self.brush_color, (*self.shift((x, y)), self.size, self.size))
+
+    def draw_ellipse(self, x1, y1, x2, y2):
+        self.last_surface.fill((0, 0, 0, 0))
+
+        a = abs((x2 - x1) // 2)
+        b = abs((y2 - y1) // 2)
+        
+        keys = pygame.key.get_pressed()
+        is_shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        
+        if is_shift_pressed:
+            a = b = min(a, b)
+        
+        a *= 1 if x2 - x1 > 0 else -1
+        b *= 1 if y2 - y1 > 0 else - 1
+            
+        xc = x1 + a
+        yc = y1 + b
+
+        # Алгоритм для рисования эллипса
+        for angle in range(0, 360):
+            rad = math.radians(angle)
+            x = int(a * math.cos(rad))
+            y = int(b * math.sin(rad))
+            
+            pygame.draw.rect(self.last_surface, self.brush_color, (*self.shift((xc + x, yc + y)), self.size, self.size))
+
+    def saving_image(self, extension):
+        full_surface = pygame.Surface(self.saving_size, pygame.SRCALPHA)
+        if extension == "jpg":
+            full_surface.fill((Color.WHITE))
+        else:
+            full_surface.fill((0, 0, 0, 0))
+        
+        for surface in self.surfaces:
+            temp_surface = pygame.transform.scale(surface, self.saving_size)
+            full_surface.blit(temp_surface, (0, 0))
+        
+        i = 1
+        while os.path.exists(f"..\\saved_images\\drawing_{extension} ({i}).{extension}"):
+            i += 1
+
+        pygame.image.save(full_surface, f"..\\saved_images\\drawing_{extension} ({i}).{extension}")
 
 if __name__ == "__main__":
     Paint().run()
