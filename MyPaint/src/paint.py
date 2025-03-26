@@ -1,3 +1,8 @@
+"""
+MyPaint - Графический редактор
+Copyright (c) 2025 Denis Korabelnikov
+"""
+
 import pygame
 import math
 import numpy as np
