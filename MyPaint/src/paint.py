@@ -1,8 +1,10 @@
 """
-Отображать, что сохранение файла выполнено
 Пофиксить прерывание карандаша
+Реализовать настоящий ластик
+Пофиксить рисование при изменении масштаба
 
 В будущем попробовать переписать логику изменения масштаба, чтобы при его изменении в середине рабочей области - сохранять текущее положение рисунка
+Реализовать кроссплатформенность между разными ОС
 """
 
 import pygame
@@ -71,17 +73,22 @@ class Paint:
                       "save_png": (358, 387, 55, 85)
             }
         
+        # Пустые клетки для будущих фигур
+        # Из массива пустые строки не удалять - возникнет ошибка при нажатии на соответствующие кнопки
         self.figure_selection = [["line", "rectangle", "ellipse"],
                                ["arc", "", ""],
                                ["", "", ""]]
         
+        self.counter_to_save = 0
         self.tool = "pencil"
-        self.eraser = False
+        self.eraser = False # Нужна для корректного сохранения цвета при переключении инструментов
         self.drawing = False
+        self.is_saving_successful = False
         self.down_scroll_bar_active = False
         self.down_scroll_bar_draw = False
         self.right_scroll_bar_active = False
         self.right_scroll_bar_draw = False
+        self.saving_button = None
         self.last_surface = None
         self.brush_color = self.last_color = Color.BLACK
         self.surfaces = []  # Список для хранения поверхностей
@@ -195,9 +202,11 @@ class Paint:
         # Сохранение в формате .jpg
         elif self.coors["save_jpg"][0] <= x <= self.coors["save_jpg"][1] and self.coors["save_jpg"][2] <= y <= self.coors["save_jpg"][3]:
             self.saving_image("jpg")
+            self.saving_button = "save_jpg"
         # Сохранение в формате .png
         elif self.coors["save_png"][0] <= x <= self.coors["save_png"][1] and self.coors["save_png"][2] <= y <= self.coors["save_png"][3]:
             self.saving_image("png")
+            self.saving_button = "save_png"
 
     def handle_mouse_motion(self, pos):
         if self.drawing:
@@ -374,11 +383,11 @@ class Paint:
             self.surfaces = new_surfaces.copy()
 
     def tools(self, tool):
-        if tool in ("pencil", "eraser"):
+        if tool in ("pencil", "eraser", "pipette"):
             self.tool = tool
         if self.eraser and (tool == "pencil" or tool == "figure_selection"):
-            self.eraser = False
             self.brush_color = self.last_color
+            self.eraser = False
         
         elif tool == "eraser":
             self.eraser = True
@@ -390,7 +399,19 @@ class Paint:
             pygame.draw.rect(self.active_button_surface, (*Color.colors[1][0], 50), (self.coors["figure_selection"][0] + self.change_tool_x * 24, self.coors["figure_selection"][2] + self.change_tool_y * 24, 24, 24))            
         else:
             x1, x2, y1, y2 = self.coors[f"{tool}"]
-            pygame.draw.rect(self.active_button_surface, (*Color.colors[1][0], 50), (x1, y1, x2 - x1 + 1, y2 - y1 + 1))            
+            pygame.draw.rect(self.active_button_surface, (*Color.colors[1][0], 50), (x1, y1, x2 - x1 + 1, y2 - y1 + 1))  
+        if self.saving_button in ("save_jpg", "save_png"):
+            x1, x2, y1, y2 = self.coors[f"{self.saving_button}"]
+            if self.is_saving_successful == True:
+                color = Color.colors[2][5]
+            else:
+                color = Color.colors[0][5]
+            pygame.draw.rect(self.active_button_surface, (*color, 50), (x1, y1, x2 - x1 + 1, y2 - y1 + 1))
+            self.counter_to_save += 1
+            if self.counter_to_save == 60:
+                self.counter_to_save = 0
+                self.saving_button = None
+                self.is_saving_successful = False
         self.sc.blit(self.active_button_surface, (0, 0))
 
     def bresenham(self, x1, y1, x2, y2):
@@ -508,21 +529,28 @@ class Paint:
             pygame.draw.rect(self.last_surface, self.brush_color, (*self.shift((xc + x, yc + y)), self.size, self.size))
 
     def saving_image(self, extension):
-        full_surface = pygame.Surface(self.saving_size, pygame.SRCALPHA)
-        if extension == "jpg":
-            full_surface.fill((Color.WHITE))
-        else:
-            full_surface.fill((0, 0, 0, 0))
-        
-        for surface in self.surfaces:
-            temp_surface = pygame.transform.scale(surface, self.saving_size)
-            full_surface.blit(temp_surface, (0, 0))
-        
-        i = 1
-        while os.path.exists(f"..\\saved_images\\drawing_{extension} ({i}).{extension}"):
-            i += 1
+        try:
+            full_surface = pygame.Surface(self.saving_size, pygame.SRCALPHA)
+            if extension == "jpg":
+                full_surface.fill((Color.WHITE))
+            else:
+                full_surface.fill((0, 0, 0, 0))
+            
+            for surface in self.surfaces:
+                temp_surface = pygame.transform.scale(surface, self.saving_size)
+                full_surface.blit(temp_surface, (0, 0))
+            
+            if not os.path.exists("..\\saved_images"):
+                os.mkdir("..\\saved_images")
+            
+            i = 1
+            while os.path.exists(f"..\\saved_images\\drawing_{extension} ({i}).{extension}"):
+                i += 1
 
-        pygame.image.save(full_surface, f"..\\saved_images\\drawing_{extension} ({i}).{extension}")
+            pygame.image.save(full_surface, f"..\\saved_images\\drawing_{extension} ({i}).{extension}")
+            self.is_saving_successful = True
+        except Exception as e:
+            self.is_saving_successful = False
 
 if __name__ == "__main__":
     Paint().run()
