@@ -1,6 +1,12 @@
+"""
+Apples Game
+Copyright (c) 2025 Denis Korabelnikov
+"""
+
 import pygame
 import random
 import sqlite3
+import os
 
 
 class ColorText:
@@ -43,7 +49,8 @@ class Game:
     def run(self):
         """Основной цикл программы."""
         try:
-            with sqlite3.connect("..\\database\\records.db") as self.conn:
+            db_path = os.path.join("..", "database", "records.db")
+            with sqlite3.connect(db_path) as self.conn:
                 self.init_database()
                 while True:
                     try:
