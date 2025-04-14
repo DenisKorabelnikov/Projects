@@ -1,5 +1,13 @@
 # Apples Game
 
+<div align="center">
+  <img src="images\Apples_game_1.png" alt="MyPaint - Графический редактор" width="600">
+</div>
+
+<div align="center">
+  <img src="images\Apples_game_2.png" alt="MyPaint - Графический редактор" width="600">
+</div>
+
 Простая игра, написанная на Python с использованием Pygame. Игрок управляет платформой и ловит падающие яблоки, набирая очки.
 
 ## Возможности
